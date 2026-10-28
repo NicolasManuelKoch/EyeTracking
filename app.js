@@ -1,44 +1,655 @@
-const $=s=>document.querySelector(s);let mode='idle',samples=[],events=[],trials=[],current=null,last=null,active=false,timer,sessionStart,validation=[],pointIndex=0,clicks=0,calibrationPass=0,initialWidth=innerWidth,startupId=0,startupWatch;const points=[[12,15],[50,15],[88,15],[12,50],[50,50],[88,50],[12,85],[50,85],[88,85]];
-function status(s){$('#status').textContent=s}function later(fn,ms){clearTimeout(timer);timer=setTimeout(fn,ms)}
-function cleanup(){clearInterval(startupWatch);clearTimeout(timer);active=false;mode='idle';$('#stage').style.display='none';if(window.webgazer){try{webgazer.pause();const v=document.getElementById('webgazerVideoFeed');if(v&&v.srcObject)v.srcObject.getTracks().forEach(t=>t.stop());webgazer.end()}catch(e){}}$('#start').disabled=false}
-function stop(){events.push({type:'stopped',t:performance.now()-sessionStart});cleanup();status('Session stopped. Camera released.');if(trials.length)render(false,true)}$('#stop').onclick=stop;
-window.addEventListener('pagehide',()=>{if(active)cleanup()});document.addEventListener('visibilitychange',()=>{if(active){events.push({type:document.hidden?'page_hidden':'page_visible',t:performance.now()-sessionStart});if(document.hidden)stop()}});window.addEventListener('resize',()=>{if(active&&Math.abs(innerWidth-initialWidth)>80){stop();status('Screen orientation changed. Please restart calibration.')}});
-function reset(){samples=[];events=[];trials=[];validation=[];current=null;last=null;pointIndex=0;calibrationPass=0;sessionStart=performance.now();initialWidth=innerWidth;$('#next').hidden=true;$('#results').hidden=true}
-function startError(e,phase){cleanup();$('#cancelStartup').hidden=true;$('#demo').disabled=false;status('Could not complete '+phase+': '+e.message);const details=document.createElement('details');const summary=document.createElement('summary');summary.textContent='Technical details (v0.4)';const pre=document.createElement('pre');pre.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px';pre.textContent=e.stack||String(e);details.append(summary,pre);$('#status').append(details)}
-$('#cancelStartup').onclick=()=>{startupId++;startError(new Error('Startup cancelled. You can retry.'),'startup')};
-$('#start').onclick=async()=>{
- if(!$('#consent').checked)return status('Please agree to camera use before starting.');
- reset();const id=++startupId;$('#start').disabled=true;$('#demo').disabled=true;$('#cancelStartup').hidden=false;
- let phase='camera permission',timeout;const began=performance.now();
- status('Step 1/2: requesting camera access. Allow the camera if your browser asks.');
- try{
-  if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia)throw Error('Open this app over HTTPS in a full browser.');
-  if(!window.webgazer)throw Error('Tracking library did not load. Refresh this page.');
-  webgazer.saveDataAcrossSessions(false);webgazer.setGazeListener(gaze);
-  webgazer.params.showFaceOverlay=false;webgazer.params.showFaceFeedbackBox=false;
-  startupWatch=setInterval(()=>{
-   if(id!==startupId)return;
-   const v=document.getElementById('webgazerVideoFeed');
-   if(v?.srcObject){phase=v.readyState>=2?'face-model loading':'camera video playback';status('Step 2/2: '+(v.readyState>=2?'camera connected; loading face model':'camera connected; starting video')+'… '+Math.floor((performance.now()-began)/1000)+'s');if(v.paused)v.play().catch(()=>{});}
-  },1000);
-  const boot=webgazer.begin();
-  Promise.resolve(boot).then(()=>{if(id!==startupId)cleanup()},()=>{});
-  await Promise.race([boot,new Promise((_,reject)=>{timeout=setTimeout(()=>reject(new Error('Timed out after 45 seconds. '+(phase==='camera permission'?'Check camera permission in your browser site settings.':'The camera or face model did not become ready. Check your connection and retry.'))),45000)})]);
-  clearTimeout(timeout);if(id!==startupId)return;
-  clearInterval(startupWatch);$('#cancelStartup').hidden=true;$('#demo').disabled=false;
-  webgazer.removeMouseEventListeners();webgazer.showVideoPreview(false).showPredictionPoints(false);
-  active=true;mode='calibrate';$('#stage').style.display='block';$('#pair').hidden=true;
-  $('#instruction').textContent='Look directly at each dot and tap it 5 times. Complete two rounds.';showPoint();
- }catch(e){clearTimeout(timeout);if(id!==startupId)return;startupId++;console.error('Gaze startup failed',e);startError(e,phase)}
-};
-function showPoint(){let p=points[pointIndex];$('#dot').hidden=false;$('#dot').style.left=p[0]+'%';$('#dot').style.top=p[1]+'%';$('#progress').textContent=`Calibration ${calibrationPass+1}/2 · target ${pointIndex+1}/9`;clicks=0;$('#dot').textContent='5'}
-$('#dot').onclick=e=>{if(mode!=='calibrate')return;webgazer.recordScreenPosition(e.clientX,e.clientY,'click');clicks++;$('#dot').textContent=String(5-clicks);if(clicks<5)return;if(++pointIndex===9){pointIndex=0;if(++calibrationPass===2)return beginValidation()}showPoint()};
-function beginValidation(){$('#dot').textContent='';webgazer.showVideoPreview(false);mode='validate';pointIndex=0;$('#instruction').textContent='Follow each dot with your eyes. No tapping.';validatePoint()}
-function validatePoint(){if(pointIndex===5){$('#dot').hidden=true;const distances=validation.map(v=>Math.hypot(v.x-v.tx,v.y-v.ty));const error=distances.length?distances.reduce((a,b)=>a+b,0)/distances.length:null;events.push({type:'validation',meanErrorPx:error,samples:distances.length});const reliable=distances.length>=15&&error<=Math.min(innerWidth,innerHeight)*.22;mode='ready';$('#progress').textContent='Calibration finished';$('#instruction').textContent=reliable?'Calibration check passed. Ready for the two-minute image task.':`Calibration check: ${distances.length} samples, ${error===null?'no gaze estimate':Math.round(error)+' px average error'}. Tracking quality is low. You can retry, or run an exploratory test with this quality flag recorded.`;$('#next').hidden=false;return}const p=points[[4,0,8,2,6][pointIndex]];$('#dot').style.left=p[0]+'%';$('#dot').style.top=p[1]+'%';$('#dot').hidden=false;$('#progress').textContent=`Validation ${pointIndex+1}/5`;last=null;const began=performance.now();current={tx:innerWidth*p[0]/100,ty:innerHeight*p[1]/100,began};later(()=>{pointIndex++;validatePoint()},1500)}
-function gaze(d){if(!active||!d||!Number.isFinite(d.x)||!Number.isFinite(d.y))return;const now=performance.now();if(mode==='validate'&&now-current.began>500)validation.push({x:d.x,y:d.y,tx:current.tx,ty:current.ty});if(mode!=='trial')return;let region='outside';for(const img of $('#pair').children){const r=img.getBoundingClientRect();if(d.x>=r.left&&d.x<=r.right&&d.y>=r.top&&d.y<=r.bottom)region=img.dataset.region}const dt=last?Math.min(now-last,150):0;if(region==='top'||region==='bottom'){current[region+'Ms']+=dt;if(!current.first)current.first=region}current.validSamples++;samples.push({t:Math.round(now-sessionStart),trial:current.index,x:Math.round(d.x),y:Math.round(d.y),region});last=now}
-function artwork(seed){const warm=seed%2===0;const colors=warm?['#e6bf8e','#c87856','#659c82']:['#93b1c4','#526e90','#b3a0be'];let svg=`<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="500"><rect width="1000" height="500" fill="${colors[0]}"/><circle cx="${200+seed*21%500}" cy="180" r="110" fill="${colors[1]}"/><path d="M0 420 Q250 ${100+seed*7} 500 360 T1000 320 V500 H0Z" fill="${colors[2]}"/></svg>`;return 'data:image/svg+xml,'+encodeURIComponent(svg)}
-function runTrial(i){if(i===24){cleanup();return render(false)}mode='rest';$('#pair').hidden=true;$('#instruction').textContent='+';$('#progress').textContent=`Image pair ${i+1} / 24`;later(()=>{current={index:i+1,topMs:0,bottomMs:0,first:null,validSamples:0,topStimulus:i*2,bottomStimulus:i*2+1};$('#pair').innerHTML=`<img alt="Abstract test image A" data-region="top" src="${artwork(i*2)}"><img alt="Abstract test image B" data-region="bottom" src="${artwork(i*2+1)}">`;$('#pair').hidden=false;$('#instruction').textContent='';mode='trial';last=null;later(()=>{trials.push({...current});runTrial(i+1)},4000)},1000)}
-function render(simulated,partial=false){const total=trials.reduce((n,t)=>n+t.validSamples,0);$('#results').hidden=false;$('#results').innerHTML=`<span class="tag">${simulated?'SIMULATED DATA':partial?'PARTIAL SESSION':'SESSION COMPLETE'}</span><h2>Your attention snapshot</h2><p>${simulated?'Illustrative values only. No camera was used.':'These are approximate webcam measurements, not clinical findings.'}</p><div class="grid"><div><div class="metric">${trials.length}</div>pairs recorded</div><div><div class="metric">${total}</div>valid gaze samples</div><div><div class="metric">${events.filter(e=>e.type==='page_hidden').length}</div>page interruptions</div></div><p>Region time totals can be shorter than viewing time because tracking gaps and time outside images are excluded.</p><table><thead><tr><th>Pair</th><th>First region</th><th>Top / bottom time</th></tr></thead><tbody>${trials.map(t=>`<tr><td>${t.index}</td><td>${t.first||'No estimate'}</td><td>${(t.topMs/1000).toFixed(1)}s / ${(t.bottomMs/1000).toFixed(1)}s</td></tr>`).join('')}</tbody></table><button id="export">Download session JSON</button>`;$('#export').onclick=()=>{const blob=new Blob([JSON.stringify({schemaVersion:1,simulated,partial,createdAt:new Date().toISOString(),stimuli:'unvalidated abstract workflow images',measurements:'approximate region dwell; no blink or clinical inference',viewport:{width:innerWidth,height:innerHeight},trials,samples,events},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='gaze-session.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)};$('#results').scrollIntoView({behavior:'smooth'})}
-$('#demo').onclick=()=>{reset();for(let i=1;i<=6;i++)trials.push({index:i,first:i%2?'top':'bottom',topMs:1200+i*110,bottomMs:2200-i*100,validSamples:82+i});render(true)};
+const $ = s => document.querySelector(s);
 
-$('#beginTask').onclick=()=>{if(mode!=='ready')return;$('#next').hidden=true;runTrial(0)};$('#retry').onclick=()=>{if(mode!=='ready')return;$('#next').hidden=true;validation=[];pointIndex=0;calibrationPass=0;mode='calibrate';$('#instruction').textContent='Look at the dot and tap it 5 times. Two rounds.';showPoint()};
+let mode = 'idle',
+  samples = [],
+  events = [],
+  trials = [],
+  current = null,
+  last = null,
+  active = false,
+  timer,
+  sessionStart,
+  validation = [],
+  pointIndex = 0,
+  clicks = 0,
+  calibrationPass = 0,
+  initialWidth = innerWidth,
+  startupId = 0,
+  startupWatch;
+
+const points = [
+  [12, 15],
+  [50, 15],
+  [88, 15],
+  [12, 50],
+  [50, 50],
+  [88, 50],
+  [12, 85],
+  [50, 85],
+  [88, 85]
+];
+
+function status(s) {
+  $('#status').textContent = s;
+}
+
+function later(fn, ms) {
+  clearTimeout(timer);
+  timer = setTimeout(fn, ms);
+}
+
+function cleanup() {
+  clearInterval(startupWatch);
+  clearTimeout(timer);
+
+  active = false;
+  mode = 'idle';
+
+  $('#stage').style.display = 'none';
+
+  if (window.webgazer) {
+    try {
+      webgazer.pause();
+
+      const v = document.getElementById('webgazerVideoFeed');
+
+      if (v && v.srcObject) {
+        v.srcObject.getTracks().forEach(t => t.stop());
+      }
+
+      webgazer.end();
+    } catch (e) {}
+  }
+
+  $('#start').disabled = false;
+}
+
+function stop() {
+  events.push({
+    type: 'stopped',
+    t: performance.now() - sessionStart
+  });
+
+  cleanup();
+  status('Session stopped. Camera released.');
+
+  if (trials.length) {
+    render(false, true);
+  }
+}
+
+$('#stop').onclick = stop;
+
+window.addEventListener('pagehide', () => {
+  if (active) {
+    cleanup();
+  }
+});
+
+document.addEventListener('visibilitychange', () => {
+  if (active) {
+    events.push({
+      type: document.hidden ? 'page_hidden' : 'page_visible',
+      t: performance.now() - sessionStart
+    });
+
+    if (document.hidden) {
+      stop();
+    }
+  }
+});
+
+window.addEventListener('resize', () => {
+  if (active && Math.abs(innerWidth - initialWidth) > 80) {
+    stop();
+    status('Screen orientation changed. Please restart calibration.');
+  }
+});
+
+function reset() {
+  samples = [];
+  events = [];
+  trials = [];
+  validation = [];
+  current = null;
+  last = null;
+  pointIndex = 0;
+  calibrationPass = 0;
+  sessionStart = performance.now();
+  initialWidth = innerWidth;
+
+  $('#next').hidden = true;
+  $('#results').hidden = true;
+}
+
+function startError(e, phase) {
+  cleanup();
+
+  $('#cancelStartup').hidden = true;
+  $('#demo').disabled = false;
+
+  status('Could not complete ' + phase + ': ' + e.message);
+
+  const details = document.createElement('details');
+  const summary = document.createElement('summary');
+
+  summary.textContent = 'Technical details (v0.4)';
+
+  const pre = document.createElement('pre');
+
+  pre.style.cssText =
+    'white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px';
+
+  pre.textContent = e.stack || String(e);
+
+  details.append(summary, pre);
+  $('#status').append(details);
+}
+
+$('#cancelStartup').onclick = () => {
+  startupId++;
+
+  startError(
+    new Error('Startup cancelled. You can retry.'),
+    'startup'
+  );
+};
+
+$('#start').onclick = async () => {
+  if (!$('#consent').checked) {
+    return status('Please agree to camera use before starting.');
+  }
+
+  reset();
+
+  const id = ++startupId;
+
+  $('#start').disabled = true;
+  $('#demo').disabled = true;
+  $('#cancelStartup').hidden = false;
+
+  let phase = 'camera permission',
+    timeout;
+
+  const began = performance.now();
+
+  status(
+    'Step 1/2: requesting camera access. Allow the camera if your browser asks.'
+  );
+
+  try {
+    if (
+      !window.isSecureContext ||
+      !navigator.mediaDevices?.getUserMedia
+    ) {
+      throw Error('Open this app over HTTPS in a full browser.');
+    }
+
+    if (!window.webgazer) {
+      throw Error('Tracking library did not load. Refresh this page.');
+    }
+
+    webgazer.saveDataAcrossSessions(false);
+    webgazer.setGazeListener(gaze);
+
+    webgazer.params.showFaceOverlay = false;
+    webgazer.params.showFaceFeedbackBox = false;
+
+    startupWatch = setInterval(() => {
+      if (id !== startupId) {
+        return;
+      }
+
+      const v = document.getElementById('webgazerVideoFeed');
+
+      if (v?.srcObject) {
+        phase =
+          v.readyState >= 2
+            ? 'face-model loading'
+            : 'camera video playback';
+
+        status(
+          'Step 2/2: ' +
+            (
+              v.readyState >= 2
+                ? 'camera connected; loading face model'
+                : 'camera connected; starting video'
+            ) +
+            '… ' +
+            Math.floor((performance.now() - began) / 1000) +
+            's'
+        );
+
+        if (v.paused) {
+          v.play().catch(() => {});
+        }
+      }
+    }, 1000);
+
+    const boot = webgazer.begin();
+
+    Promise.resolve(boot).then(
+      () => {
+        if (id !== startupId) {
+          cleanup();
+        }
+      },
+      () => {}
+    );
+
+    await Promise.race([
+      boot,
+      new Promise((_, reject) => {
+        timeout = setTimeout(
+          () =>
+            reject(
+              new Error(
+                'Timed out after 45 seconds. ' +
+                  (
+                    phase === 'camera permission'
+                      ? 'Check camera permission in your browser site settings.'
+                      : 'The camera or face model did not become ready. Check your connection and retry.'
+                  )
+              )
+            ),
+          45000
+        );
+      })
+    ]);
+
+    clearTimeout(timeout);
+
+    if (id !== startupId) {
+      return;
+    }
+
+    clearInterval(startupWatch);
+
+    $('#cancelStartup').hidden = true;
+    $('#demo').disabled = false;
+
+    webgazer.removeMouseEventListeners();
+    webgazer.showVideoPreview(false).showPredictionPoints(false);
+
+    active = true;
+    mode = 'calibrate';
+
+    $('#stage').style.display = 'block';
+    $('#pair').hidden = true;
+
+    $('#instruction').textContent =
+      'Look directly at each dot and tap it 5 times. Complete two rounds.';
+
+    showPoint();
+  } catch (e) {
+    clearTimeout(timeout);
+
+    if (id !== startupId) {
+      return;
+    }
+
+    startupId++;
+
+    console.error('Gaze startup failed', e);
+    startError(e, phase);
+  }
+};
+
+function showPoint() {
+  let p = points[pointIndex];
+
+  $('#dot').hidden = false;
+  $('#dot').style.left = p[0] + '%';
+  $('#dot').style.top = p[1] + '%';
+
+  $('#progress').textContent =
+    `Calibration ${calibrationPass + 1}/2 · target ${pointIndex + 1}/9`;
+
+  clicks = 0;
+
+  $('#dot').textContent = '5';
+}
+
+$('#dot').onclick = e => {
+  if (mode !== 'calibrate') {
+    return;
+  }
+
+  webgazer.recordScreenPosition(e.clientX, e.clientY, 'click');
+
+  clicks++;
+
+  $('#dot').textContent = String(5 - clicks);
+
+  if (clicks < 5) {
+    return;
+  }
+
+  if (++pointIndex === 9) {
+    pointIndex = 0;
+
+    if (++calibrationPass === 2) {
+      return beginValidation();
+    }
+  }
+
+  showPoint();
+};
+
+function beginValidation() {
+  $('#dot').textContent = '';
+
+  webgazer.showVideoPreview(false);
+
+  mode = 'validate';
+  pointIndex = 0;
+
+  $('#instruction').textContent =
+    'Follow each dot with your eyes. No tapping.';
+
+  validatePoint();
+}
+
+function validatePoint() {
+  if (pointIndex === 5) {
+    $('#dot').hidden = true;
+
+    const distances = validation.map(v =>
+      Math.hypot(v.x - v.tx, v.y - v.ty)
+    );
+
+    const error = distances.length
+      ? distances.reduce((a, b) => a + b, 0) / distances.length
+      : null;
+
+    events.push({
+      type: 'validation',
+      meanErrorPx: error,
+      samples: distances.length
+    });
+
+    const reliable =
+      distances.length >= 15 &&
+      error <= Math.min(innerWidth, innerHeight) * 0.22;
+
+    mode = 'ready';
+
+    $('#progress').textContent = 'Calibration finished';
+
+    $('#instruction').textContent = reliable
+      ? 'Calibration check passed. Ready for the two-minute image task.'
+      : `Calibration check: ${distances.length} samples, ${
+          error === null
+            ? 'no gaze estimate'
+            : Math.round(error) + ' px average error'
+        }. Tracking quality is low. You can retry, or run an exploratory test with this quality flag recorded.`;
+
+    $('#next').hidden = false;
+
+    return;
+  }
+
+  const p = points[[4, 0, 8, 2, 6][pointIndex]];
+
+  $('#dot').style.left = p[0] + '%';
+  $('#dot').style.top = p[1] + '%';
+  $('#dot').hidden = false;
+
+  $('#progress').textContent = `Validation ${pointIndex + 1}/5`;
+
+  last = null;
+
+  const began = performance.now();
+
+  current = {
+    tx: innerWidth * p[0] / 100,
+    ty: innerHeight * p[1] / 100,
+    began
+  };
+
+  later(() => {
+    pointIndex++;
+    validatePoint();
+  }, 1500);
+}
+
+function gaze(d) {
+  if (
+    !active ||
+    !d ||
+    !Number.isFinite(d.x) ||
+    !Number.isFinite(d.y)
+  ) {
+    return;
+  }
+
+  const now = performance.now();
+
+  if (mode === 'validate' && now - current.began > 500) {
+    validation.push({
+      x: d.x,
+      y: d.y,
+      tx: current.tx,
+      ty: current.ty
+    });
+  }
+
+  if (mode !== 'trial') {
+    return;
+  }
+
+  let region = 'outside';
+
+  for (const img of $('#pair').children) {
+    const r = img.getBoundingClientRect();
+
+    if (
+      d.x >= r.left &&
+      d.x <= r.right &&
+      d.y >= r.top &&
+      d.y <= r.bottom
+    ) {
+      region = img.dataset.region;
+    }
+  }
+
+  const dt = last ? Math.min(now - last, 150) : 0;
+
+  if (region === 'top' || region === 'bottom') {
+    current[region + 'Ms'] += dt;
+
+    if (!current.first) {
+      current.first = region;
+    }
+  }
+
+  current.validSamples++;
+
+  samples.push({
+    t: Math.round(now - sessionStart),
+    trial: current.index,
+    x: Math.round(d.x),
+    y: Math.round(d.y),
+    region
+  });
+
+  last = now;
+}
+
+function artwork(seed) {
+  const warm = seed % 2 === 0;
+
+  const colors = warm
+    ? ['#e6bf8e', '#c87856', '#659c82']
+    : ['#93b1c4', '#526e90', '#b3a0be'];
+
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="500"><rect width="1000" height="500" fill="${colors[0]}"/><circle cx="${200 + seed * 21 % 500}" cy="180" r="110" fill="${colors[1]}"/><path d="M0 420 Q250 ${100 + seed * 7} 500 360 T1000 320 V500 H0Z" fill="${colors[2]}"/></svg>`;
+
+  return 'data:image/svg+xml,' + encodeURIComponent(svg);
+}
+
+function runTrial(i) {
+  if (i === 24) {
+    cleanup();
+    return render(false);
+  }
+
+  mode = 'rest';
+
+  $('#pair').hidden = true;
+  $('#instruction').textContent = '+';
+  $('#progress').textContent = `Image pair ${i + 1} / 24`;
+
+  later(() => {
+    current = {
+      index: i + 1,
+      topMs: 0,
+      bottomMs: 0,
+      first: null,
+      validSamples: 0,
+      topStimulus: i * 2,
+      bottomStimulus: i * 2 + 1
+    };
+
+    $('#pair').innerHTML = `<img alt="Abstract test image A" data-region="top" src="${artwork(i * 2)}"><img alt="Abstract test image B" data-region="bottom" src="${artwork(i * 2 + 1)}">`;
+
+    $('#pair').hidden = false;
+    $('#instruction').textContent = '';
+
+    mode = 'trial';
+    last = null;
+
+    later(() => {
+      trials.push({ ...current });
+      runTrial(i + 1);
+    }, 4000);
+  }, 1000);
+}
+
+function render(simulated, partial = false) {
+  const total = trials.reduce((n, t) => n + t.validSamples, 0);
+
+  $('#results').hidden = false;
+
+  $('#results').innerHTML = `
+    <span class="tag">${
+      simulated
+        ? 'SIMULATED DATA'
+        : partial
+          ? 'PARTIAL SESSION'
+          : 'SESSION COMPLETE'
+    }</span>
+
+    <h2>Your attention snapshot</h2>
+
+    <p>${
+      simulated
+        ? 'Illustrative values only. No camera was used.'
+        : 'These are approximate webcam measurements, not clinical findings.'
+    }</p>
+
+    <div class="grid">
+      <div>
+        <div class="metric">${trials.length}</div>
+        pairs recorded
+      </div>
+
+      <div>
+        <div class="metric">${total}</div>
+        valid gaze samples
+      </div>
+
+      <div>
+        <div class="metric">${
+          events.filter(e => e.type === 'page_hidden').length
+        }</div>
+        page interruptions
+      </div>
+    </div>
+
+    <p>
+      Region time totals can be shorter than viewing time because
+      tracking gaps and time outside images are excluded.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Pair</th>
+          <th>First region</th>
+          <th>Top / bottom time</th>
+        </tr>
+      </thead>
+
+      <tbody>
+        ${trials.map(t => `
+          <tr>
+            <td>${t.index}</td>
+            <td>${t.first || 'No estimate'}</td>
+            <td>${(t.topMs / 1000).toFixed(1)}s / ${(t.bottomMs / 1000).toFixed(1)}s</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+
+    <button id="export">Download session JSON</button>
+  `;
+
+  $('#export').onclick = () => {
+    const blob = new Blob(
+      [
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            simulated,
+            partial,
+            createdAt: new Date().toISOString(),
+            stimuli: 'unvalidated abstract workflow images',
+            measurements:
+              'approximate region dwell; no blink or clinical inference',
+            viewport: {
+              width: innerWidth,
+              height: innerHeight
+            },
+            trials,
+            samples,
+            events
+          },
+          null,
+          2
+        )
+      ],
+      {
+        type: 'application/json'
+      }
+    );
+
+    const a = document.createElement('a');
+
+    a.href = URL.createObjectURL(blob);
+    a.download = 'gaze-session.json';
+    a.click();
+
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+
+  $('#results').scrollIntoView({
+    behavior: 'smooth'
+  });
+}
+
+$('#demo').onclick = () => {
+  reset();
+
+  for (let i = 1; i <= 6; i++) {
+    trials.push({
+      index: i,
+      first: i % 2 ? 'top' : 'bottom',
+      topMs: 1200 + i * 110,
+      bottomMs: 2200 - i * 100,
+      validSamples: 82 + i
+    });
+  }
+
+  render(true);
+};
