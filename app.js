@@ -240,20 +240,18 @@ $('#start').onclick = async () => {
     await Promise.race([
       boot,
       new Promise((_, reject) => {
-        timeout = setTimeout(
-          () =>
-            reject(
-              new Error(
-                'Timed out after 45 seconds. ' +
-                  (
-                    phase === 'camera permission'
-                      ? 'Check camera permission in your browser site settings.'
-                      : 'The camera or face model did not become ready. Check your connection and retry.'
-                  )
-              )
-            ),
-          45000
-        );
+        timeout = setTimeout(() => {
+          reject(
+            new Error(
+              'Timed out after 45 seconds. ' +
+                (
+                  phase === 'camera permission'
+                    ? 'Check camera permission in your browser site settings.'
+                    : 'The camera or face model did not become ready. Check your connection and retry.'
+                )
+            )
+          );
+        }, 45000);
       })
     ]);
 
@@ -296,7 +294,7 @@ $('#start').onclick = async () => {
 };
 
 function showPoint() {
-  let p = points[pointIndex];
+  const p = points[pointIndex];
 
   $('#dot').hidden = false;
   $('#dot').style.left = p[0] + '%';
@@ -483,7 +481,7 @@ function artwork(seed) {
     ? ['#e6bf8e', '#c87856', '#659c82']
     : ['#93b1c4', '#526e90', '#b3a0be'];
 
-  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="500"><rect width="1000" height="500" fill="${colors[0]}"/><circle cx="${200 + seed * 21 % 500}" cy="180" r="110" fill="${colors[1]}"/><path d="M0 420 Q250 ${100 + seed * 7} 500 360 T1000 320 V500 H0Z" fill="${colors[2]}"/></svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="500"><rect width="1000" height="500" fill="${colors[0]}"/><circle cx="${200 + seed * 21 % 500}" cy="180" r="110" fill="${colors[1]}"/><path d="M0 420 Q250 ${100 + seed * 7} 500 360 T1000 320 V500 H0Z" fill="${colors[2]}"/></svg>`;
 
   return 'data:image/svg+xml,' + encodeURIComponent(svg);
 }
@@ -511,7 +509,18 @@ function runTrial(i) {
       bottomStimulus: i * 2 + 1
     };
 
-    $('#pair').innerHTML = `<img alt="Abstract test image A" data-region="top" src="${artwork(i * 2)}"><img alt="Abstract test image B" data-region="bottom" src="${artwork(i * 2 + 1)}">`;
+    $('#pair').innerHTML = `
+      <img
+        alt="Abstract test image A"
+        data-region="top"
+        src="${artwork(i * 2)}"
+      >
+      <img
+        alt="Abstract test image B"
+        data-region="bottom"
+        src="${artwork(i * 2 + 1)}"
+      >
+    `;
 
     $('#pair').hidden = false;
     $('#instruction').textContent = '';
@@ -586,7 +595,10 @@ function render(simulated, partial = false) {
           <tr>
             <td>${t.index}</td>
             <td>${t.first || 'No estimate'}</td>
-            <td>${(t.topMs / 1000).toFixed(1)}s / ${(t.bottomMs / 1000).toFixed(1)}s</td>
+            <td>
+              ${(t.topMs / 1000).toFixed(1)}s /
+              ${(t.bottomMs / 1000).toFixed(1)}s
+            </td>
           </tr>
         `).join('')}
       </tbody>
@@ -652,4 +664,34 @@ $('#demo').onclick = () => {
   }
 
   render(true);
+};
+
+$('#beginTask').onclick = () => {
+  if (!active || mode !== 'ready') {
+    return;
+  }
+
+  $('#next').hidden = true;
+  runTrial(0);
+};
+
+$('#retry').onclick = () => {
+  if (!active || mode !== 'ready') {
+    return;
+  }
+
+  validation = [];
+  pointIndex = 0;
+  calibrationPass = 0;
+  current = null;
+  last = null;
+
+  $('#next').hidden = true;
+
+  mode = 'calibrate';
+
+  $('#instruction').textContent =
+    'Look directly at each dot and tap it 5 times. Complete two rounds.';
+
+  showPoint();
 };
