@@ -1,3 +1,361 @@
-<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Gaze Lab · Attention explorer</title><style>
-:root{font-family:Inter,system-ui,sans-serif;color:#20352f;background:#f3f4ed}*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0}header{padding:24px 6%;display:flex;justify-content:space-between;border-bottom:1px solid #d8ddd3}header b{font-size:23px}small,.muted{color:#67796f}main{max-width:1060px;margin:65px auto;padding:0 24px}h1{font-size:clamp(38px,6vw,68px);letter-spacing:-3px;line-height:1.05;max-width:750px;margin:20px 0}p{line-height:1.65;max-width:680px}.tag{font-size:12px;letter-spacing:2px;text-transform:uppercase;color:#527b62}.panel{background:white;border:1px solid #dce1d7;padding:28px;border-radius:22px;margin:28px 0}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}.grid strong{display:block;margin:10px 0}button,.link{border:0;border-radius:30px;background:#264d3c;color:white;padding:15px 24px;font:inherit;cursor:pointer;margin:6px 8px 6px 0}button.secondary{background:#e6ebdf;color:#264d3c}button:disabled{opacity:.4;cursor:default}input{margin-right:10px}#stage{position:fixed;inset:0;background:#f3f4ed;z-index:100;display:none}#instruction{position:absolute;top:42%;width:100%;text-align:center;padding:20px;pointer-events:none}#next{position:absolute;top:64%;width:100%;text-align:center;padding:15px}#dot{touch-action:manipulation;color:white;font-size:13px;position:absolute;width:42px;height:42px;padding:0;border:7px solid #c4d8ba;background:#315f44;border-radius:50%;transform:translate(-50%,-50%);margin:0}#progress{position:absolute;top:12px;left:20px;font-size:14px}#stop{position:absolute;right:10px;top:5px;padding:8px 15px;z-index:3}#pair{position:absolute;inset:65px 20px 25px;display:grid;grid-template-rows:1fr 1fr;gap:20px}#pair img{width:100%;height:100%;min-height:0;object-fit:cover;border-radius:16px}#status{min-height:24px;color:#47684e}.metric{font-size:28px;font-weight:600}table{border-collapse:collapse;width:100%}td,th{text-align:left;padding:12px 8px;border-bottom:1px solid #e3e8df}#webgazerVideoContainer{z-index:150!important}footer{padding:30px 6%;color:#67796f;font-size:13px}@media(max-width:650px){main{margin-top:35px}.grid{grid-template-columns:1fr}h1{letter-spacing:-2px}.panel{padding:20px}table{font-size:12px}}
-</style><header><b>◉ Gaze Lab</b><small>Attention explorer / v0.4</small></header><main><span class="tag">A small window into attention</span><h1>Explore where<br>your attention goes.</h1><p>A two-minute camera-based experiment. Calibrate your gaze, view image pairs, and inspect your own attention measurements.</p><div class="grid"><div><span class="tag">01 / Set up</span><strong>Camera & calibration</strong><small>Keep your phone still, with your face clearly lit.</small></div><div><span class="tag">02 / Observe</span><strong>View without choosing</strong><small>Look naturally at each pair. There are no right answers.</small></div><div><span class="tag">03 / Explore</span><strong>Your session, explained</strong><small>Review estimates and download the raw measurements.</small></div></div><section class="panel" id="setup"><h2>Start a session</h2><p>This prototype measures gaze; it does not diagnose depression. The built-in abstract images test the workflow and are not validated psychological stimuli. Camera processing stays in your browser. No session data is uploaded; model files may download from external providers.</p><p><label><input id="consent" type="checkbox">I agree to use my camera for this local attention experiment.</label></p><button id="start">Enable camera & calibrate</button><button class="secondary" id="demo">Explore a simulated session</button><button id="cancelStartup" class="secondary" hidden>Cancel loading</button><div id="status" role="status"></div></section><section id="results" class="panel" hidden></section><section class="panel"><h2>What this version measures</h2><p>Estimated gaze coordinates, time in each image region, first valid region, tracking gaps, and page visibility interruptions. A missing gaze estimate does not prove that you looked away. Blinks and eyelid openness are not measured yet.</p></section></main><footer>Experimental webcam estimates · No depression probability · JSON export available</footer><div id="stage"><div id="progress"></div><button id="stop">Stop session</button><div id="instruction"></div><div id="next" hidden><button id="beginTask">Start image test</button><button id="retry" class="secondary">Retry calibration</button></div><div id="pair" hidden></div><button id="dot" hidden aria-label="Calibration target"></button></div><script src="webgazer.js?v=3.3.0-p1"></script><script src="app.js?v=4"></script></html>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Gaze Lab · Attention explorer</title>
+
+    <style>
+      :root {
+        font-family: Inter, system-ui, sans-serif;
+        color: #20352f;
+        background: #f3f4ed;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      header {
+        padding: 24px 6%;
+        display: flex;
+        justify-content: space-between;
+        border-bottom: 1px solid #d8ddd3;
+      }
+
+      header b {
+        font-size: 23px;
+      }
+
+      small,
+      .muted {
+        color: #67796f;
+      }
+
+      main {
+        max-width: 1060px;
+        margin: 65px auto;
+        padding: 0 24px;
+      }
+
+      h1 {
+        font-size: clamp(38px, 6vw, 68px);
+        letter-spacing: -3px;
+        line-height: 1.05;
+        max-width: 750px;
+        margin: 20px 0;
+      }
+
+      p {
+        line-height: 1.65;
+        max-width: 680px;
+      }
+
+      .tag {
+        font-size: 12px;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        color: #527b62;
+      }
+
+      .panel {
+        background: white;
+        border: 1px solid #dce1d7;
+        padding: 28px;
+        border-radius: 22px;
+        margin: 28px 0;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 20px;
+      }
+
+      .grid strong {
+        display: block;
+        margin: 10px 0;
+      }
+
+      button,
+      .link {
+        border: 0;
+        border-radius: 30px;
+        background: #264d3c;
+        color: white;
+        padding: 15px 24px;
+        font: inherit;
+        cursor: pointer;
+        margin: 6px 8px 6px 0;
+      }
+
+      button.secondary {
+        background: #e6ebdf;
+        color: #264d3c;
+      }
+
+      button:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+
+      input {
+        margin-right: 10px;
+      }
+
+      #stage {
+        position: fixed;
+        inset: 0;
+        background: #f3f4ed;
+        z-index: 100;
+        display: none;
+      }
+
+      #instruction {
+        position: absolute;
+        top: 42%;
+        width: 100%;
+        text-align: center;
+        padding: 20px;
+        pointer-events: none;
+      }
+
+      #next {
+        position: absolute;
+        top: 64%;
+        width: 100%;
+        text-align: center;
+        padding: 15px;
+      }
+
+      #dot {
+        touch-action: manipulation;
+        color: white;
+        font-size: 13px;
+        position: absolute;
+        width: 42px;
+        height: 42px;
+        padding: 0;
+        border: 7px solid #c4d8ba;
+        background: #315f44;
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        margin: 0;
+      }
+
+      #progress {
+        position: absolute;
+        top: 12px;
+        left: 20px;
+        font-size: 14px;
+      }
+
+      #stop {
+        position: absolute;
+        right: 10px;
+        top: 5px;
+        padding: 8px 15px;
+        z-index: 3;
+      }
+
+      #pair {
+        position: absolute;
+        inset: 65px 20px 25px;
+        display: grid;
+        grid-template-rows: 1fr 1fr;
+        gap: 20px;
+      }
+
+      #pair img {
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        object-fit: cover;
+        border-radius: 16px;
+      }
+
+      #status {
+        min-height: 24px;
+        color: #47684e;
+      }
+
+      .metric {
+        font-size: 28px;
+        font-weight: 600;
+      }
+
+      table {
+        border-collapse: collapse;
+        width: 100%;
+      }
+
+      td,
+      th {
+        text-align: left;
+        padding: 12px 8px;
+        border-bottom: 1px solid #e3e8df;
+      }
+
+      #webgazerVideoContainer {
+        z-index: 150 !important;
+      }
+
+      footer {
+        padding: 30px 6%;
+        color: #67796f;
+        font-size: 13px;
+      }
+
+      @media (max-width: 650px) {
+        main {
+          margin-top: 35px;
+        }
+
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        h1 {
+          letter-spacing: -2px;
+        }
+
+        .panel {
+          padding: 20px;
+        }
+
+        table {
+          font-size: 12px;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <header>
+      <b>◉ Gaze Lab</b>
+      <small>Attention explorer / v0.4</small>
+    </header>
+
+    <main>
+      <span class="tag">A small window into attention</span>
+
+      <h1>
+        Explore where<br>
+        your attention goes.
+      </h1>
+
+      <p>
+        A two-minute camera-based experiment. Calibrate your gaze, view
+        image pairs, and inspect your own attention measurements.
+      </p>
+
+      <div class="grid">
+        <div>
+          <span class="tag">01 / Set up</span>
+          <strong>Camera & calibration</strong>
+          <small>
+            Keep your phone still, with your face clearly lit.
+          </small>
+        </div>
+
+        <div>
+          <span class="tag">02 / Observe</span>
+          <strong>View without choosing</strong>
+          <small>
+            Look naturally at each pair. There are no right answers.
+          </small>
+        </div>
+
+        <div>
+          <span class="tag">03 / Explore</span>
+          <strong>Your session, explained</strong>
+          <small>
+            Review estimates and download the raw measurements.
+          </small>
+        </div>
+      </div>
+
+      <section class="panel" id="setup">
+        <h2>Start a session</h2>
+
+        <p>
+          This prototype measures gaze; it does not diagnose depression.
+          The built-in abstract images test the workflow and are not
+          validated psychological stimuli. Camera processing stays in
+          your browser. No session data is uploaded; model files may
+          download from external providers.
+        </p>
+
+        <p>
+          <label>
+            <input id="consent" type="checkbox">
+            I agree to use my camera for this local attention experiment.
+          </label>
+        </p>
+
+        <button id="start">
+          Enable camera & calibrate
+        </button>
+
+        <button class="secondary" id="demo">
+          Explore a simulated session
+        </button>
+
+        <button id="cancelStartup" class="secondary" hidden>
+          Cancel loading
+        </button>
+
+        <div id="status" role="status"></div>
+      </section>
+
+      <section id="results" class="panel" hidden></section>
+
+      <section class="panel">
+        <h2>What this version measures</h2>
+
+        <p>
+          Estimated gaze coordinates, time in each image region, first
+          valid region, tracking gaps, and page visibility interruptions.
+          A missing gaze estimate does not prove that you looked away.
+          Blinks and eyelid openness are not measured yet.
+        </p>
+      </section>
+    </main>
+
+    <footer>
+      Experimental webcam estimates · No depression probability · JSON export available
+    </footer>
+
+    <div id="stage">
+      <div id="progress"></div>
+
+      <button id="stop">Stop session</button>
+
+      <div id="instruction"></div>
+
+      <div id="next" hidden>
+        <button id="beginTask">Start image test</button>
+        <button id="retry" class="secondary">Retry calibration</button>
+      </div>
+
+      <div id="pair" hidden></div>
+
+      <button
+        id="dot"
+        hidden
+        aria-label="Calibration target"
+      ></button>
+    </div>
+
+    <script src="webgazer.js?v=3.3.0-p1"></script>
+    <script src="app.js?v=4"></script>
+  </body>
+</html>
